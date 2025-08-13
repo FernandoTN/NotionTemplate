@@ -1,0 +1,30 @@
+{
+  "name": "notiontemplate",
+  "version": "1.0.0",
+  "description": "A template repository for Notion-related projects.",
+  "main": "index.js",
+  "scripts": {
+    "bootstrap": "ts-node scripts/bootstrap-notion-crm.ts",
+    "seed": "ts-node scripts/seed-starter-content.ts",
+    "build": "tsc",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/FernandoTN/NotionTemplate.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/FernandoTN/NotionTemplate/issues"
+  },
+  "homepage": "https://github.com/FernandoTN/NotionTemplate#readme",
+  "dependencies": {
+    "@notionhq/client": "^4.0.1",
+    "@types/node": "^24.2.1",
+    "dotenv": "^17.2.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.2"
+  }
+}
