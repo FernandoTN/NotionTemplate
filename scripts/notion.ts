@@ -50,6 +50,12 @@ export class NotionService {
     this.logger(message);
   }
 
+  logProgress(step: number, total: number, message: string): void {
+    const percentage = Math.round((step / total) * 100);
+    const progressBar = '█'.repeat(Math.floor(percentage / 5)) + '░'.repeat(20 - Math.floor(percentage / 5));
+    this.log(`[${step}/${total}] ${progressBar} ${percentage}% ${message}`);
+  }
+
   printConfig(): void {
     this.log('🔧 Configuration:');
     this.log(`  INCLUDE_TASKS_DB: ${this.config.includeTasksDb}`);
@@ -57,12 +63,16 @@ export class NotionService {
   }
 
   async createOrGetDatabaseByName(name: string, properties: any): Promise<DatabaseInfo> {
-    try {
-      // Check if database already exists
-      const response = await this.client.search({
-        query: name,
-        filter: { value: 'database', property: 'object' },
-      });
+    const maxRetries = 3;
+    let lastError: any;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        // Check if database already exists
+        const response = await this.client.search({
+          query: name,
+          filter: { value: 'database', property: 'object' },
+        });
 
       const existingDb = response.results.find((db: any) => 
         db.title && db.title[0] && db.title[0].plain_text === name
@@ -72,28 +82,58 @@ export class NotionService {
         this.log(`Database "${name}" already exists, using existing database`);
         return {
           id: existingDb.id,
-          url: existingDb.url,
-          properties: this.extractPropertyIds(existingDb.properties)
+          url: (existingDb as any).url,
+          properties: this.extractPropertyIds((existingDb as any).properties)
         };
       }
 
       // Create new database
       this.log(`Creating database: ${name}`);
-      const createResponse = await this.client.databases.create({
+      const databaseConfig: any = {
         parent: { page_id: this.rootPageId },
         title: [{ type: 'text', text: { content: name } }],
         properties,
-      });
+      };
+
+      // Add database-specific icons and descriptions
+      if (name === 'Companies') {
+        databaseConfig.icon = { emoji: '🏢' };
+        databaseConfig.description = [{ type: 'text', text: { content: 'Track organizations by type, size, AI capabilities, and ecosystem role' } }];
+      } else if (name === 'Contacts') {
+        databaseConfig.icon = { emoji: '👥' };
+        databaseConfig.description = [{ type: 'text', text: { content: 'Manage stakeholders with detailed categorization and interview tracking' } }];
+      } else if (name === 'Interviews') {
+        databaseConfig.icon = { emoji: '🎤' };
+        databaseConfig.description = [{ type: 'text', text: { content: 'Schedule and document interviews with structured content blocks' } }];
+      } else if (name === 'Insights') {
+        databaseConfig.icon = { emoji: '💡' };
+        databaseConfig.description = [{ type: 'text', text: { content: 'Capture and categorize key findings from interviews' } }];
+      } else if (name === 'Research Projects') {
+        databaseConfig.icon = { emoji: '🔬' };
+        databaseConfig.description = [{ type: 'text', text: { content: 'Organize interview campaigns with progress tracking' } }];
+      } else if (name === 'Tasks') {
+        databaseConfig.icon = { emoji: '📋' };
+        databaseConfig.description = [{ type: 'text', text: { content: 'Manage follow-up actions with priority, status, and deadline tracking' } }];
+      }
+
+      const createResponse = await this.client.databases.create(databaseConfig);
 
       return {
         id: createResponse.id,
-        url: createResponse.url,
-        properties: this.extractPropertyIds(createResponse.properties)
+        url: (createResponse as any).url,
+        properties: this.extractPropertyIds((createResponse as any).properties)
       };
-    } catch (error) {
-      this.log(`Error creating database ${name}: ${error}`);
-      throw error;
+      } catch (error) {
+        lastError = error;
+        this.log(`Attempt ${attempt}/${maxRetries} failed for database ${name}: ${error}`);
+        if (attempt < maxRetries) {
+          await new Promise(resolve => setTimeout(resolve, 1000 * attempt)); // Exponential backoff
+        }
+      }
     }
+    
+    this.log(`❌ Failed to create database ${name} after ${maxRetries} attempts`);
+    throw lastError;
   }
 
   get notionClient() {
@@ -123,7 +163,7 @@ export class NotionService {
 
       return {
         id: response.id,
-        url: response.url,
+        url: (response as any).url,
       };
     } catch (error) {
       this.log(`Error creating page in database ${databaseId}: ${error}`);
@@ -149,8 +189,10 @@ export class NotionService {
       const response = await this.client.pages.create({
         parent: { page_id: this.rootPageId },
         properties: {
-          title: [{ type: 'text', text: { content: title } }],
-        },
+          title: { 
+            title: [{ type: 'text', text: { content: title } }]
+          }
+        } as any,
         children: [
           {
             type: 'heading_1',
@@ -198,7 +240,7 @@ export class NotionService {
 
       return {
         id: response.id,
-        url: response.url,
+        url: (response as any).url,
       };
     } catch (error) {
       this.log(`Error creating dashboard page: ${error}`);
@@ -325,7 +367,7 @@ export class NotionService {
     return null;
   }
 
-  async createOrGetTasksDatabase(interviewsDbId: string, contactsDbId: string): Promise<DatabaseInfo> {
+  async createOrGetTasksDatabase(interviewsDbId: string, contactsDbId: string, researchProjectsDbId: string): Promise<DatabaseInfo> {
     const tasksProperties = {
       'Task': { title: {} },
       'Interview': {
@@ -337,6 +379,12 @@ export class NotionService {
       'Contact': {
         relation: {
           database_id: contactsDbId,
+          dual_property: {}
+        }
+      },
+      'Project': {
+        relation: {
+          database_id: researchProjectsDbId,
           dual_property: {}
         }
       },
@@ -376,23 +424,24 @@ export class NotionService {
           ]
         }
       },
+      'Recipient Email': { email: {} },
       'Next Action': { rich_text: {} },
       'Notes': { rich_text: {} },
       'Created': { created_time: {} },
       'Completed At': { date: {} },
+      'DoneNum': {
+        formula: {
+          expression: 'if(prop("Status") == "Completed", 1, 0)'
+        }
+      },
       'Is Overdue': {
         formula: {
           expression: 'and(prop("Status") != "Completed", prop("Due Date") != null, prop("Due Date") < now())'
         }
       },
-      'Age (days)': {
+      'DueSoonNum': {
         formula: {
-          expression: 'dateBetween(now(), prop("Created"), "days")'
-        }
-      },
-      'DoneNum': {
-        formula: {
-          expression: 'if(prop("Status") == "Completed", 1, 0)'
+          expression: 'if(and(prop("Status") != "Completed", prop("Due Date") != null, dateBetween(prop("Due Date"), now(), "days") <= 7, dateBetween(prop("Due Date"), now(), "days") >= 0), 1, 0)'
         }
       }
     };
@@ -416,16 +465,19 @@ export class NotionService {
         this.log(`Dashboard page "${title}" already exists, using existing page`);
         return {
           id: existingPage.id,
-          url: existingPage.url,
+          url: (existingPage as any).url,
         };
       }
 
       this.log(`Creating enhanced dashboard page: ${title}`);
       const pageResponse = await this.client.pages.create({
         parent: { page_id: this.rootPageId },
+        icon: { emoji: '📊' },
         properties: {
-          title: [{ type: 'text', text: { content: title } }],
-        },
+          title: { 
+            title: [{ type: 'text', text: { content: title } }]
+          }
+        } as any,
         children: [
           {
             type: 'heading_1',
@@ -535,7 +587,7 @@ export class NotionService {
 
       return {
         id: pageResponse.id,
-        url: pageResponse.url,
+        url: (pageResponse as any).url,
       };
     } catch (error) {
       this.log(`Error creating enhanced dashboard page: ${error}`);

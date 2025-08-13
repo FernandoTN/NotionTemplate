@@ -13,8 +13,11 @@ async function main() {
   };
 
   try {
+    let totalSteps = notion.config.includeTasksDb ? 8 : 7;
+    if (!notion.config.includeDashboardPage) totalSteps -= 1;
+
     // Step 1: Create Companies Database
-    notion.log('📊 Creating Companies database...');
+    notion.logProgress(1, totalSteps, 'Creating Companies database...');
     const companiesDb = await notion.createOrGetDatabaseByName('Companies', {
       'Company Name': { title: {} },
       'Company Type': {
@@ -100,7 +103,7 @@ async function main() {
     ids.databases.Companies = companiesDb;
 
     // Step 2: Create Contacts Database
-    notion.log('👥 Creating Contacts database...');
+    notion.logProgress(2, totalSteps, 'Creating Contacts database...');
     const contactsDb = await notion.createOrGetDatabaseByName('Contacts', {
       'Name': { title: {} },
       'Company': {
@@ -195,7 +198,7 @@ async function main() {
     });
 
     // Step 3: Create Interviews Database
-    notion.log('🎤 Creating Interviews database...');
+    notion.logProgress(3, totalSteps, 'Creating Interviews database...');
     const interviewsDb = await notion.createOrGetDatabaseByName('Interviews', {
       'Interview Title': { title: {} },
       'Contact': {
@@ -273,7 +276,7 @@ async function main() {
     ids.databases.Interviews = interviewsDb;
 
     // Step 4: Create Insights Database
-    notion.log('💡 Creating Insights database...');
+    notion.logProgress(4, totalSteps, 'Creating Insights database...');
     const insightsDb = await notion.createOrGetDatabaseByName('Insights', {
       'Insight Title': { title: {} },
       'Category': {
@@ -328,7 +331,7 @@ async function main() {
     ids.databases.Insights = insightsDb;
 
     // Step 5: Create Research Projects Database
-    notion.log('🔬 Creating Research Projects database...');
+    notion.logProgress(5, totalSteps, 'Creating Research Projects database...');
     const researchProjectsDb = await notion.createOrGetDatabaseByName('Research Projects', {
       'Project Name': { title: {} },
       'Research Questions': { rich_text: {} },
@@ -373,13 +376,13 @@ async function main() {
     // Step 6: Create Tasks Database (if enabled)
     let tasksDb: any = null;
     if (notion.config.includeTasksDb) {
-      notion.log('📋 Creating Tasks database...');
-      tasksDb = await notion.createOrGetTasksDatabase(interviewsDb.id, contactsDb.id);
+      notion.logProgress(6, totalSteps, 'Creating Tasks database...');
+      tasksDb = await notion.createOrGetTasksDatabase(interviewsDb.id, contactsDb.id, researchProjectsDb.id);
       ids.databases.Tasks = tasksDb;
     }
 
     // Step 7: Add rollup properties that require the relation property IDs
-    notion.log('🔄 Adding rollup properties...');
+    notion.logProgress(notion.config.includeTasksDb ? 7 : 6, totalSteps, 'Adding rollup properties...');
     
     // Add rollups to Companies
     await notion.updateDatabase(companiesDb.id, {
@@ -512,15 +515,68 @@ async function main() {
       }
     });
 
+    // Add Tasks rollups to Research Projects (if Tasks enabled)
+    if (notion.config.includeTasksDb && tasksDb) {
+      const researchProjectsUpdatedResponse = await notion.notionClient.databases.retrieve({ database_id: researchProjectsDb.id });
+      const projectTasksRelationId = (researchProjectsUpdatedResponse.properties['Tasks'] as any)?.id;
+      
+      if (projectTasksRelationId) {
+        await notion.updateDatabase(researchProjectsDb.id, {
+          'Total Tasks': {
+            rollup: {
+              relation_property_id: projectTasksRelationId,
+              rollup_property_id: 'title',
+              function: 'count'
+            }
+          },
+          'Completed Tasks': {
+            rollup: {
+              relation_property_id: projectTasksRelationId,
+              rollup_property_id: (tasksDb.properties['DoneNum'] || 'DoneNum'),
+              function: 'sum'
+            }
+          },
+          'Open Tasks': {
+            formula: {
+              expression: 'prop("Total Tasks") - prop("Completed Tasks")'
+            }
+          },
+          'Open %': {
+            formula: {
+              expression: 'if(prop("Total Tasks") > 0, round(100 * prop("Open Tasks") / prop("Total Tasks")), 0)'
+            }
+          }
+        });
+      }
+    }
+
     // Step 8: Create Enhanced Dashboard Page (if enabled)
     if (notion.config.includeDashboardPage) {
-      notion.log('📊 Creating enhanced Research Dashboard page...');
+      notion.logProgress(totalSteps, totalSteps, 'Creating enhanced Research Dashboard page...');
       const dashboardPage = await notion.createEnhancedDashboardPage('Research Dashboard');
       ids.pages['Research Dashboard'] = dashboardPage;
     }
 
     // Save all IDs
     notion.saveNotionIds(ids);
+
+    // Verification step
+    notion.log('🔍 Verifying bootstrap completion...');
+    const expectedDatabases = ['Companies', 'Contacts', 'Interviews', 'Insights', 'Research Projects'];
+    if (notion.config.includeTasksDb) {
+      expectedDatabases.push('Tasks');
+    }
+
+    const missingDatabases = expectedDatabases.filter(name => !ids.databases[name]);
+    if (missingDatabases.length > 0) {
+      throw new Error(`Missing databases: ${missingDatabases.join(', ')}`);
+    }
+
+    if (notion.config.includeDashboardPage && !ids.pages['Research Dashboard']) {
+      throw new Error('Missing Research Dashboard page');
+    }
+
+    notion.log('✅ All components verified successfully!');
 
     // Print results
     notion.log('✅ Bootstrap complete! Database URLs:');
@@ -538,6 +594,11 @@ async function main() {
     Object.entries(ids.databases).forEach(([name, info]) => {
       console.log(`${name}: ${info.id}`);
     });
+
+    console.log('\n🎯 NEXT STEPS:');
+    console.log('1. Create email templates in Tasks database (see README)');
+    console.log('2. Add linked database views to Research Dashboard');
+    console.log('3. Optional: Add database buttons for workflow automation');
 
   } catch (error) {
     notion.log(`❌ Bootstrap failed: ${error}`);

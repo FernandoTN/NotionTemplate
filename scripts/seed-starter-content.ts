@@ -461,6 +461,42 @@ async function main() {
           }
         },
         {
+          type: 'heading_3',
+          heading_3: {
+            rich_text: [{ type: 'text', text: { content: 'Pain Points Identified' } }]
+          }
+        },
+        {
+          type: 'bulleted_list_item',
+          bulleted_list_item: {
+            rich_text: [{ type: 'text', text: { content: 'Technical challenges' } }]
+          }
+        },
+        {
+          type: 'bulleted_list_item',
+          bulleted_list_item: {
+            rich_text: [{ type: 'text', text: { content: 'Process bottlenecks' } }]
+          }
+        },
+        {
+          type: 'heading_3',
+          heading_3: {
+            rich_text: [{ type: 'text', text: { content: 'Opportunities Discovered' } }]
+          }
+        },
+        {
+          type: 'bulleted_list_item',
+          bulleted_list_item: {
+            rich_text: [{ type: 'text', text: { content: 'Potential collaborations' } }]
+          }
+        },
+        {
+          type: 'bulleted_list_item',
+          bulleted_list_item: {
+            rich_text: [{ type: 'text', text: { content: 'Research directions' } }]
+          }
+        },
+        {
           type: 'heading_2',
           heading_2: {
             rich_text: [{ type: 'text', text: { content: 'Follow-up Actions' } }]
@@ -663,7 +699,7 @@ async function main() {
       notion.log('📋 Creating sample Tasks...');
       
       // Helper function to check if task already exists
-      const checkTaskExists = async (taskTitle: string, interviewId?: string): Promise<boolean> => {
+      const checkTaskExists = async (taskTitle: string, interviewId?: string, projectId?: string): Promise<boolean> => {
         try {
           const filters: any[] = [
             {
@@ -683,6 +719,15 @@ async function main() {
             });
           }
 
+          if (projectId) {
+            filters.push({
+              property: 'Project',
+              relation: {
+                contains: projectId
+              }
+            });
+          }
+
           const response = await notion.notionClient.databases.query({
             database_id: ids.databases.Tasks.id,
             filter: {
@@ -696,9 +741,9 @@ async function main() {
         }
       };
 
-      // Create task 1: Send thank-you email
+      // Create task 1: Send thank-you email (linked to interview, contact, and project)
       const task1Title = 'Send thank-you email';
-      const task1Exists = await checkTaskExists(task1Title, interview1.id);
+      const task1Exists = await checkTaskExists(task1Title, interview1.id, researchProject.id);
       if (!task1Exists) {
         const task1 = await notion.createPage(
           ids.databases.Tasks.id,
@@ -712,6 +757,9 @@ async function main() {
             'Contact': {
               relation: [{ id: contact1.id }]
             },
+            'Project': {
+              relation: [{ id: researchProject.id }]
+            },
             'Due Date': {
               date: { start: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0] } // +1 day
             },
@@ -723,6 +771,9 @@ async function main() {
             },
             'Channel': {
               select: { name: 'Email' }
+            },
+            'Recipient Email': {
+              email: 'sarah.chen@anthropic.com'
             },
             'Next Action': {
               rich_text: [
@@ -746,7 +797,7 @@ async function main() {
 
       // Create task 2: Schedule follow-up
       const task2Title = 'Schedule follow-up';
-      const task2Exists = await checkTaskExists(task2Title, interview2.id);
+      const task2Exists = await checkTaskExists(task2Title, interview2.id, researchProject.id);
       if (!task2Exists) {
         const task2 = await notion.createPage(
           ids.databases.Tasks.id,
@@ -759,6 +810,9 @@ async function main() {
             },
             'Contact': {
               relation: [{ id: contact2.id }]
+            },
+            'Project': {
+              relation: [{ id: researchProject.id }]
             },
             'Due Date': {
               date: { start: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] } // +7 days
@@ -792,9 +846,9 @@ async function main() {
         );
       }
 
-      // Create task 3: Request referral
-      const task3Title = 'Request referral to X';
-      const task3Exists = await checkTaskExists(task3Title); // No interview relation for this task
+      // Create task 3: Request referral to Planning Systems team
+      const task3Title = 'Request referral to Planning Systems team';
+      const task3Exists = await checkTaskExists(task3Title, undefined, researchProject.id); // No interview relation for this task
       if (!task3Exists) {
         const task3 = await notion.createPage(
           ids.databases.Tasks.id,
@@ -804,6 +858,9 @@ async function main() {
             },
             'Contact': {
               relation: [{ id: contact3.id }]
+            },
+            'Project': {
+              relation: [{ id: researchProject.id }]
             },
             'Due Date': {
               date: { start: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] } // +14 days
@@ -816,6 +873,9 @@ async function main() {
             },
             'Channel': {
               select: { name: 'LinkedIn' }
+            },
+            'Recipient Email': {
+              email: 'maria.gonzalez@openai.com'
             },
             'Next Action': {
               rich_text: [

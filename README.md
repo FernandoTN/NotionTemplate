@@ -73,7 +73,7 @@ After running the seed script, you'll have:
 - **3 Contacts**: Dr. Sarah Chen, Alex Rodriguez, Prof. Maria Gonzalez
 - **2 Interviews**: with structured content blocks
 - **2 Insights**: covering pain points and market trends
-- **3 Tasks**: follow-up actions with priority and deadline tracking (if enabled)
+- **3 Tasks**: project-linked follow-up actions with email scaffolding and deadline tracking (if enabled)
 
 ## Database Schema
 
@@ -145,18 +145,26 @@ After running the seed script, you'll have:
 - **Task** (Title)
 - **Interview** (Relation → Interviews)
 - **Contact** (Relation → Contacts)
+- **Project** (Relation → Research Projects)
 - **Due Date** (Date)
 - **Priority**: Low, Medium, High, Urgent
 - **Status**: Backlog, Next, Scheduled, In Progress, Waiting, Blocked, Completed
 - **Owner** (People)
 - **Channel**: Email, LinkedIn, Call, Meeting, Other
+- **Recipient Email** (Email)
 - **Next Action** (Rich text)
 - **Notes** (Rich text)
 - **Created** (Created time)
 - **Completed At** (Date)
-- **Is Overdue** (Formula): `and(prop("Status") != "Completed", prop("Due Date") != null, prop("Due Date") < now())`
-- **Age (days)** (Formula): `dateBetween(now(), prop("Created"), "days")`
 - **DoneNum** (Formula): `if(prop("Status") == "Completed", 1, 0)`
+- **Is Overdue** (Formula): `and(prop("Status") != "Completed", prop("Due Date") != null, prop("Due Date") < now())`
+- **DueSoonNum** (Formula): `if(and(prop("Status") != "Completed", prop("Due Date") != null, dateBetween(prop("Due Date"), now(), "days") <= 7, dateBetween(prop("Due Date"), now(), "days") >= 0), 1, 0)`
+
+The Tasks database now includes project-level tracking with these additional rollups in Research Projects:
+- **Total Tasks** (Rollup): Count of all related tasks
+- **Completed Tasks** (Rollup): Sum of completed tasks
+- **Open Tasks** (Formula): `prop("Total Tasks") - prop("Completed Tasks")`
+- **Open %** (Formula): `if(prop("Total Tasks") > 0, round(100 * prop("Open Tasks") / prop("Total Tasks")), 0)`
 
 ## Feature Flags
 
@@ -197,7 +205,7 @@ After running the bootstrap script, complete these manual steps in the Notion UI
 
 **For Tasks Database** (if enabled):
 1. Open Tasks database → Click "New" dropdown → "+ New template"
-2. Create "Standard Follow-up" template with common task patterns
+2. Create email scaffolding templates (see Email Scaffolding section below)
 
 ### 2. Dashboard Views & Linked Databases
 
@@ -249,6 +257,99 @@ After running the bootstrap script, complete these manual steps in the Notion UI
   - Creates new Task with Due Date = now + 7 days
   - Links to current Interview/Contact
   - Pre-fills common follow-up actions
+
+## Email Scaffolding Workflow
+
+The Tasks database supports email workflow automation through database templates. Create these templates in the Notion UI for efficient email management.
+
+### Email Templates (Manual UI Setup)
+
+**1. "Email: Thank-you" Template**
+
+Open Tasks database → Click "New" dropdown → "+ New template" → Name: "Email: Thank-you"
+
+Add these content blocks to the template:
+
+```
+📋 Callout: "Copy/personalize the email below. Adjust bullets with concrete takeaways."
+
+## Subject
+Thank you — {{Company}} interview on {{Date}}
+
+## Body
+Hi {{FirstName}},
+
+Thank you for your time today discussing {{topic}} at {{Company}}. Top takeaways:
+• {{Insight 1}}
+• {{Insight 2}}
+• {{Insight 3}}
+
+Next steps:
+• {{Commitment you made}}
+• {{What I'll send by when}}
+
+If helpful, here's a slot finder: {{Scheduling Link}}.
+
+Best,
+{{Your Name}}
+
+## Post-send Checklist
+- [ ] Set Task → Status = Completed
+- [ ] Create follow-up task if needed
+```
+
+**2. "Email: Follow-up" Template**
+
+Create second template: "Email: Follow-up"
+
+```
+## Subject
+Following up on {{topic}} — next steps
+
+## Body
+Hi {{FirstName}},
+
+Following up on our {{Date}} conversation re: {{topic}}. Quick summary of the ask:
+• {{Request/decision}}
+• {{Link to doc/demo}}
+
+Would {{two time windows}} work? Otherwise, feel free to propose.
+
+Thanks again,
+{{Your Name}}
+
+## Post-send Checklist
+- [ ] Set Task → Status = Completed
+- [ ] Schedule next follow-up if needed
+```
+
+### Optional Database Buttons
+
+Add these buttons to the Tasks database for workflow automation:
+
+**Complete Task Button:**
+- Action: Edit pages in Tasks
+- Set Status = "Completed"
+- Set Completed At = now()
+
+**Draft Thank-you Email Button:**
+- Action: Insert content blocks with Thank-you template
+- Or connect to Gmail for direct sending
+
+### Email Workflow Process
+
+1. **After Interview**: Auto-created "Send thank-you email" task appears
+2. **Open Task**: Use "Email: Thank-you" template
+3. **Customize**: Replace {{placeholders}} with specific details
+4. **Send Email**: Copy to email client or use Notion's email integration
+5. **Complete**: Mark task as completed, create follow-up tasks as needed
+
+### Integration with Recipient Email Field
+
+The `Recipient Email` property in Tasks enables:
+- Quick copy-paste to email clients
+- Integration with email automation tools
+- Contact management and email history tracking
 
 ## Integration Setup
 
