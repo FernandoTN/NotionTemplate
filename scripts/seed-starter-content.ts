@@ -4,6 +4,7 @@ async function main() {
   const notion = new NotionService();
   
   notion.log('🌱 Starting content seeding...');
+  notion.printConfig();
 
   // Load existing database IDs
   const ids = notion.loadNotionIds();
@@ -657,6 +658,186 @@ async function main() {
       }
     );
 
+    // Step 6: Create sample Tasks (if Tasks DB is enabled)
+    if (notion.config.includeTasksDb && ids.databases.Tasks) {
+      notion.log('📋 Creating sample Tasks...');
+      
+      // Helper function to check if task already exists
+      const checkTaskExists = async (taskTitle: string, interviewId?: string): Promise<boolean> => {
+        try {
+          const filters: any[] = [
+            {
+              property: 'Task',
+              title: {
+                equals: taskTitle
+              }
+            }
+          ];
+
+          if (interviewId) {
+            filters.push({
+              property: 'Interview',
+              relation: {
+                contains: interviewId
+              }
+            });
+          }
+
+          const response = await notion.notionClient.databases.query({
+            database_id: ids.databases.Tasks.id,
+            filter: {
+              and: filters
+            }
+          });
+          return response.results.length > 0;
+        } catch (error) {
+          notion.log(`Error checking task existence: ${error}`);
+          return false;
+        }
+      };
+
+      // Create task 1: Send thank-you email
+      const task1Title = 'Send thank-you email';
+      const task1Exists = await checkTaskExists(task1Title, interview1.id);
+      if (!task1Exists) {
+        const task1 = await notion.createPage(
+          ids.databases.Tasks.id,
+          {
+            'Task': {
+              title: [{ type: 'text', text: { content: task1Title } }]
+            },
+            'Interview': {
+              relation: [{ id: interview1.id }]
+            },
+            'Contact': {
+              relation: [{ id: contact1.id }]
+            },
+            'Due Date': {
+              date: { start: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0] } // +1 day
+            },
+            'Priority': {
+              select: { name: 'Medium' }
+            },
+            'Status': {
+              select: { name: 'Next' }
+            },
+            'Channel': {
+              select: { name: 'Email' }
+            },
+            'Next Action': {
+              rich_text: [
+                {
+                  type: 'text',
+                  text: { content: 'Draft personalized thank-you email with key discussion points and next steps.' }
+                }
+              ]
+            },
+            'Notes': {
+              rich_text: [
+                {
+                  type: 'text',
+                  text: { content: 'Include summary of agentic AI insights and offer to share relevant research papers.' }
+                }
+              ]
+            }
+          }
+        );
+      }
+
+      // Create task 2: Schedule follow-up
+      const task2Title = 'Schedule follow-up';
+      const task2Exists = await checkTaskExists(task2Title, interview2.id);
+      if (!task2Exists) {
+        const task2 = await notion.createPage(
+          ids.databases.Tasks.id,
+          {
+            'Task': {
+              title: [{ type: 'text', text: { content: task2Title } }]
+            },
+            'Interview': {
+              relation: [{ id: interview2.id }]
+            },
+            'Contact': {
+              relation: [{ id: contact2.id }]
+            },
+            'Due Date': {
+              date: { start: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] } // +7 days
+            },
+            'Priority': {
+              select: { name: 'High' }
+            },
+            'Status': {
+              select: { name: 'Backlog' }
+            },
+            'Channel': {
+              select: { name: 'Meeting' }
+            },
+            'Next Action': {
+              rich_text: [
+                {
+                  type: 'text',
+                  text: { content: 'Coordinate calendars for technical deep-dive session with engineering team.' }
+                }
+              ]
+            },
+            'Notes': {
+              rich_text: [
+                {
+                  type: 'text',
+                  text: { content: 'Focus on multi-agent coordination patterns and tool integration challenges.' }
+                }
+              ]
+            }
+          }
+        );
+      }
+
+      // Create task 3: Request referral
+      const task3Title = 'Request referral to X';
+      const task3Exists = await checkTaskExists(task3Title); // No interview relation for this task
+      if (!task3Exists) {
+        const task3 = await notion.createPage(
+          ids.databases.Tasks.id,
+          {
+            'Task': {
+              title: [{ type: 'text', text: { content: task3Title } }]
+            },
+            'Contact': {
+              relation: [{ id: contact3.id }]
+            },
+            'Due Date': {
+              date: { start: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] } // +14 days
+            },
+            'Priority': {
+              select: { name: 'Low' }
+            },
+            'Status': {
+              select: { name: 'Backlog' }
+            },
+            'Channel': {
+              select: { name: 'LinkedIn' }
+            },
+            'Next Action': {
+              rich_text: [
+                {
+                  type: 'text',
+                  text: { content: 'Draft LinkedIn message requesting introduction to Planning Systems team lead.' }
+                }
+              ]
+            },
+            'Notes': {
+              rich_text: [
+                {
+                  type: 'text',
+                  text: { content: 'Mention specific interest in recent planning research and potential collaboration opportunities.' }
+                }
+              ]
+            }
+          }
+        );
+      }
+    }
+
     notion.log('✅ Content seeding complete!');
     
     console.log('\n🌱 SEEDED CONTENT:');
@@ -665,6 +846,9 @@ async function main() {
     console.log('• 3 Contacts: Dr. Sarah Chen, Alex Rodriguez, Prof. Maria Gonzalez');
     console.log('• 2 Interviews: with structured content blocks');
     console.log('• 2 Insights: covering pain points and market trends');
+    if (notion.config.includeTasksDb) {
+      console.log('• 3 Tasks: follow-up actions linked to interviews and contacts');
+    }
 
   } catch (error) {
     notion.log(`❌ Content seeding failed: ${error}`);

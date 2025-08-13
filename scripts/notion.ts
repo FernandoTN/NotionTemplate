@@ -16,10 +16,16 @@ export interface NotionIds {
   pages: Record<string, { id: string; url: string }>;
 }
 
+export interface BootstrapConfig {
+  includeTasksDb: boolean;
+  includeDashboardPage: boolean;
+}
+
 export class NotionService {
   private client: Client;
   private rootPageId: string;
   private logger: (message: string) => void;
+  public config: BootstrapConfig;
 
   constructor() {
     if (!process.env.NOTION_TOKEN) {
@@ -32,10 +38,22 @@ export class NotionService {
     this.client = new Client({ auth: process.env.NOTION_TOKEN });
     this.rootPageId = process.env.ROOT_PAGE_ID;
     this.logger = (message: string) => console.log(`[${new Date().toISOString()}] ${message}`);
+    
+    // Parse feature flags with defaults
+    this.config = {
+      includeTasksDb: process.env.INCLUDE_TASKS_DB !== 'false',
+      includeDashboardPage: process.env.INCLUDE_DASHBOARD_PAGE !== 'false'
+    };
   }
 
   log(message: string): void {
     this.logger(message);
+  }
+
+  printConfig(): void {
+    this.log('🔧 Configuration:');
+    this.log(`  INCLUDE_TASKS_DB: ${this.config.includeTasksDb}`);
+    this.log(`  INCLUDE_DASHBOARD_PAGE: ${this.config.includeDashboardPage}`);
   }
 
   async createOrGetDatabaseByName(name: string, properties: any): Promise<DatabaseInfo> {
@@ -196,6 +214,99 @@ export class NotionService {
     return result;
   }
 
+  async ensureDatabase(name: string, parentId: string, properties: any): Promise<DatabaseInfo> {
+    return this.createOrGetDatabaseByName(name, properties);
+  }
+
+  async ensureRelation(fromDbId: string, toDbId: string, relationName: string): Promise<{ fromPropertyId: string; toPropertyId: string }> {
+    try {
+      // Check if relation already exists
+      const fromDb = await this.notionClient.databases.retrieve({ database_id: fromDbId });
+      const existingProperty = fromDb.properties[relationName];
+      
+      if (existingProperty && existingProperty.type === 'relation') {
+        this.log(`Relation "${relationName}" already exists, skipping creation`);
+        const relationId = (existingProperty as any).id;
+        
+        // Get the dual property ID from the target database
+        const toDb = await this.notionClient.databases.retrieve({ database_id: toDbId });
+        let dualPropertyId = '';
+        for (const [propName, prop] of Object.entries(toDb.properties)) {
+          if ((prop as any).type === 'relation' && (prop as any).relation?.database_id === fromDbId) {
+            dualPropertyId = (prop as any).id;
+            break;
+          }
+        }
+        
+        return {
+          fromPropertyId: relationId,
+          toPropertyId: dualPropertyId
+        };
+      }
+
+      // Create new relation
+      this.log(`Creating relation: ${relationName} from ${fromDbId} to ${toDbId}`);
+      await this.updateDatabase(fromDbId, {
+        [relationName]: {
+          relation: {
+            database_id: toDbId,
+            dual_property: {}
+          }
+        }
+      });
+
+      // Get the property IDs after creation
+      const updatedFromDb = await this.notionClient.databases.retrieve({ database_id: fromDbId });
+      const fromPropertyId = (updatedFromDb.properties[relationName] as any).id;
+
+      // Find the dual property in the target database
+      const updatedToDb = await this.notionClient.databases.retrieve({ database_id: toDbId });
+      let toPropertyId = '';
+      for (const [propName, prop] of Object.entries(updatedToDb.properties)) {
+        if ((prop as any).type === 'relation' && (prop as any).relation?.database_id === fromDbId) {
+          toPropertyId = (prop as any).id;
+          break;
+        }
+      }
+
+      return {
+        fromPropertyId,
+        toPropertyId
+      };
+    } catch (error) {
+      this.log(`Error ensuring relation ${relationName}: ${error}`);
+      throw error;
+    }
+  }
+
+  async ensureRollup(dbId: string, rollupName: string, relationPropertyId: string, targetPropertyId: string, rollupFunction: string): Promise<void> {
+    try {
+      // Check if rollup already exists
+      const db = await this.notionClient.databases.retrieve({ database_id: dbId });
+      const existingProperty = db.properties[rollupName];
+      
+      if (existingProperty && existingProperty.type === 'rollup') {
+        this.log(`Rollup "${rollupName}" already exists, skipping creation`);
+        return;
+      }
+
+      // Create new rollup
+      this.log(`Creating rollup: ${rollupName} in ${dbId}`);
+      await this.updateDatabase(dbId, {
+        [rollupName]: {
+          rollup: {
+            relation_property_id: relationPropertyId,
+            rollup_property_id: targetPropertyId,
+            function: rollupFunction
+          }
+        }
+      });
+    } catch (error) {
+      this.log(`Error ensuring rollup ${rollupName}: ${error}`);
+      throw error;
+    }
+  }
+
   saveNotionIds(ids: NotionIds): void {
     const outputPath = path.join(process.cwd(), 'output', 'notion-ids.json');
     fs.writeFileSync(outputPath, JSON.stringify(ids, null, 2));
@@ -212,5 +323,223 @@ export class NotionService {
       this.log(`Could not load existing IDs: ${error}`);
     }
     return null;
+  }
+
+  async createOrGetTasksDatabase(interviewsDbId: string, contactsDbId: string): Promise<DatabaseInfo> {
+    const tasksProperties = {
+      'Task': { title: {} },
+      'Interview': {
+        relation: {
+          database_id: interviewsDbId,
+          dual_property: {}
+        }
+      },
+      'Contact': {
+        relation: {
+          database_id: contactsDbId,
+          dual_property: {}
+        }
+      },
+      'Due Date': { date: {} },
+      'Priority': {
+        select: {
+          options: [
+            { name: 'Low', color: 'gray' },
+            { name: 'Medium', color: 'yellow' },
+            { name: 'High', color: 'orange' },
+            { name: 'Urgent', color: 'red' }
+          ]
+        }
+      },
+      'Status': {
+        select: {
+          options: [
+            { name: 'Backlog', color: 'gray' },
+            { name: 'Next', color: 'blue' },
+            { name: 'Scheduled', color: 'yellow' },
+            { name: 'In Progress', color: 'orange' },
+            { name: 'Waiting', color: 'purple' },
+            { name: 'Blocked', color: 'red' },
+            { name: 'Completed', color: 'green' }
+          ]
+        }
+      },
+      'Owner': { people: {} },
+      'Channel': {
+        select: {
+          options: [
+            { name: 'Email', color: 'blue' },
+            { name: 'LinkedIn', color: 'purple' },
+            { name: 'Call', color: 'green' },
+            { name: 'Meeting', color: 'orange' },
+            { name: 'Other', color: 'gray' }
+          ]
+        }
+      },
+      'Next Action': { rich_text: {} },
+      'Notes': { rich_text: {} },
+      'Created': { created_time: {} },
+      'Completed At': { date: {} },
+      'Is Overdue': {
+        formula: {
+          expression: 'and(prop("Status") != "Completed", prop("Due Date") != null, prop("Due Date") < now())'
+        }
+      },
+      'Age (days)': {
+        formula: {
+          expression: 'dateBetween(now(), prop("Created"), "days")'
+        }
+      },
+      'DoneNum': {
+        formula: {
+          expression: 'if(prop("Status") == "Completed", 1, 0)'
+        }
+      }
+    };
+
+    return this.createOrGetDatabaseByName('Tasks', tasksProperties);
+  }
+
+  async createEnhancedDashboardPage(title: string): Promise<{ id: string; url: string }> {
+    try {
+      // Check if dashboard page already exists
+      const response = await this.client.search({
+        query: title,
+        filter: { value: 'page', property: 'object' },
+      });
+
+      const existingPage = response.results.find((page: any) => 
+        page.properties?.title?.title?.[0]?.plain_text === title
+      );
+
+      if (existingPage) {
+        this.log(`Dashboard page "${title}" already exists, using existing page`);
+        return {
+          id: existingPage.id,
+          url: existingPage.url,
+        };
+      }
+
+      this.log(`Creating enhanced dashboard page: ${title}`);
+      const pageResponse = await this.client.pages.create({
+        parent: { page_id: this.rootPageId },
+        properties: {
+          title: [{ type: 'text', text: { content: title } }],
+        },
+        children: [
+          {
+            type: 'heading_1',
+            heading_1: {
+              rich_text: [{ type: 'text', text: { content: 'Research Dashboard' } }],
+            },
+          },
+          {
+            type: 'callout',
+            callout: {
+              rich_text: [
+                {
+                  type: 'text',
+                  text: { content: 'Add the linked-database views under each heading (UI).' },
+                },
+              ],
+              icon: { emoji: '📋' },
+            },
+          },
+          {
+            type: 'heading_2',
+            heading_2: {
+              rich_text: [{ type: 'text', text: { content: 'This Week\'s Interviews' } }],
+            },
+          },
+          {
+            type: 'paragraph',
+            paragraph: {
+              rich_text: [
+                {
+                  type: 'text',
+                  text: { content: 'Add a Linked View of Interviews → Calendar, filtered to this week.' },
+                },
+              ],
+            },
+          },
+          {
+            type: 'heading_2',
+            heading_2: {
+              rich_text: [{ type: 'text', text: { content: 'Follow-up Pipeline' } }],
+            },
+          },
+          {
+            type: 'paragraph',
+            paragraph: {
+              rich_text: [
+                {
+                  type: 'text',
+                  text: { content: 'Add a Linked View of Tasks → Board grouped by Status, filtered: Status ≠ Completed.' },
+                },
+              ],
+            },
+          },
+          {
+            type: 'heading_2',
+            heading_2: {
+              rich_text: [{ type: 'text', text: { content: 'High-Value Targets' } }],
+            },
+          },
+          {
+            type: 'paragraph',
+            paragraph: {
+              rich_text: [
+                {
+                  type: 'text',
+                  text: { content: 'Add a Linked View of Contacts → Table filtered by Stakeholder Type / Company Type.' },
+                },
+              ],
+            },
+          },
+          {
+            type: 'heading_2',
+            heading_2: {
+              rich_text: [{ type: 'text', text: { content: 'Insights Themes' } }],
+            },
+          },
+          {
+            type: 'paragraph',
+            paragraph: {
+              rich_text: [
+                {
+                  type: 'text',
+                  text: { content: 'Add a Linked View of Insights → Table grouped by Category or AI Domain.' },
+                },
+              ],
+            },
+          },
+          {
+            type: 'heading_2',
+            heading_2: {
+              rich_text: [{ type: 'text', text: { content: 'Progress' } }],
+            },
+          },
+          {
+            type: 'paragraph',
+            paragraph: {
+              rich_text: [
+                {
+                  type: 'text',
+                  text: { content: 'Add a Linked View of Research Projects → Table showing Completion %.' },
+                },
+              ],
+            },
+          },
+        ],
+      });
+
+      return {
+        id: pageResponse.id,
+        url: pageResponse.url,
+      };
+    } catch (error) {
+      this.log(`Error creating enhanced dashboard page: ${error}`);
+      throw error;
+    }
   }
 }

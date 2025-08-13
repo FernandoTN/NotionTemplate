@@ -9,6 +9,7 @@ A comprehensive Notion-based CRM system designed specifically for conducting and
 - **Interviews Database**: Schedule and document interviews with structured content blocks
 - **Insights Database**: Capture and categorize key findings from interviews
 - **Research Projects Database**: Organize interview campaigns with progress tracking
+- **Tasks Database**: Manage follow-up actions with priority, status, and deadline tracking (optional)
 
 ## Quick Start
 
@@ -41,6 +42,10 @@ A comprehensive Notion-based CRM system designed specifically for conducting and
    ```
    NOTION_TOKEN=your_notion_integration_token
    ROOT_PAGE_ID=your_parent_page_id
+   
+   # Feature Flags (default = true)
+   INCLUDE_TASKS_DB=true
+   INCLUDE_DASHBOARD_PAGE=true
    ```
 
 ### Usage
@@ -59,6 +64,16 @@ A comprehensive Notion-based CRM system designed specifically for conducting and
    - Database URLs and IDs will be printed to console
    - All IDs saved to `output/notion-ids.json`
    - Research Dashboard page created with instructions
+
+### Sample Content
+
+After running the seed script, you'll have:
+- **1 Research Project**: "Agentic AI Interviews 2025-2026"
+- **2 Companies**: Anthropic, OpenAI
+- **3 Contacts**: Dr. Sarah Chen, Alex Rodriguez, Prof. Maria Gonzalez
+- **2 Interviews**: with structured content blocks
+- **2 Insights**: covering pain points and market trends
+- **3 Tasks**: follow-up actions with priority and deadline tracking (if enabled)
 
 ## Database Schema
 
@@ -126,6 +141,32 @@ A comprehensive Notion-based CRM system designed specifically for conducting and
 - **Timeline** (Date range)
 - **Status**: Planning, Active, Analysis, Completed
 
+### 6. Tasks (Optional)
+- **Task** (Title)
+- **Interview** (Relation → Interviews)
+- **Contact** (Relation → Contacts)
+- **Due Date** (Date)
+- **Priority**: Low, Medium, High, Urgent
+- **Status**: Backlog, Next, Scheduled, In Progress, Waiting, Blocked, Completed
+- **Owner** (People)
+- **Channel**: Email, LinkedIn, Call, Meeting, Other
+- **Next Action** (Rich text)
+- **Notes** (Rich text)
+- **Created** (Created time)
+- **Completed At** (Date)
+- **Is Overdue** (Formula): `and(prop("Status") != "Completed", prop("Due Date") != null, prop("Due Date") < now())`
+- **Age (days)** (Formula): `dateBetween(now(), prop("Created"), "days")`
+- **DoneNum** (Formula): `if(prop("Status") == "Completed", 1, 0)`
+
+## Feature Flags
+
+The system supports feature flags to control which components are created:
+
+- **INCLUDE_TASKS_DB**: Controls Tasks database creation (default: true)
+- **INCLUDE_DASHBOARD_PAGE**: Controls enhanced dashboard creation (default: true)
+
+Set these in your `.env` file or as environment variables.
+
 ## Post-Script Manual Setup
 
 After running the bootstrap script, complete these manual steps in the Notion UI:
@@ -154,10 +195,14 @@ After running the bootstrap script, complete these manual steps in the Notion UI
 1. Open Insights database → Click "New" dropdown → "+ New template"
 2. Add template with structured fields and guidance for consistent insight capture
 
+**For Tasks Database** (if enabled):
+1. Open Tasks database → Click "New" dropdown → "+ New template"
+2. Create "Standard Follow-up" template with common task patterns
+
 ### 2. Dashboard Views & Linked Databases
 
 1. Navigate to the "Research Dashboard" page created by the script
-2. Manually add these linked database views:
+2. Manually add these linked database views under each heading:
 
    **This Week's Interviews:**
    - Add linked database → Select "Interviews"
@@ -165,19 +210,25 @@ After running the bootstrap script, complete these manual steps in the Notion UI
    - Filter: Date & Time is this week
 
    **Follow-up Pipeline:**
-   - Add linked database → Select "Contacts"
+   - Add linked database → Select "Tasks" (if enabled) or "Contacts"
    - Change view to Board
-   - Group by: Interview Status
+   - Group by: Status (for Tasks) or Interview Status (for Contacts)
+   - Filter: Status ≠ Completed (for Tasks)
 
    **High-Value Targets:**
    - Add linked database → Select "Contacts"
    - Keep as Table view
    - Filter by: Stakeholder Type, Experience Level, Company Size Category
 
-   **Company Ecosystem Map:**
-   - Add linked database → Select "Companies"
-   - Change view to Board
-   - Group by: Ecosystem Role
+   **Insights Themes:**
+   - Add linked database → Select "Insights"
+   - Keep as Table view
+   - Group by: Category or AI Domain
+
+   **Progress:**
+   - Add linked database → Select "Research Projects"
+   - Keep as Table view
+   - Show Completion % column
 
 ### 3. Optional Automations
 
@@ -186,6 +237,18 @@ After running the bootstrap script, complete these manual steps in the Notion UI
   - Sets Status → "Completed"
   - Stamps completion date
   - Triggers follow-up reminder
+
+**Complete Task Button** (if Tasks enabled):
+- In Tasks database, add a button that:
+  - Sets Status → "Completed"
+  - Sets Completed At → now()
+  - Updates priority and owner if needed
+
+**Schedule Follow-up Button:**
+- In Interviews or Contacts, add a button that:
+  - Creates new Task with Due Date = now + 7 days
+  - Links to current Interview/Contact
+  - Pre-fills common follow-up actions
 
 ## Integration Setup
 

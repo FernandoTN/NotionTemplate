@@ -4,6 +4,7 @@ async function main() {
   const notion = new NotionService();
   
   notion.log('🚀 Starting Notion CRM Bootstrap...');
+  notion.printConfig();
 
   // Initialize the IDs structure
   const ids: NotionIds = {
@@ -369,7 +370,15 @@ async function main() {
     });
     ids.databases['Research Projects'] = researchProjectsDb;
 
-    // Step 6: Add rollup properties that require the relation property IDs
+    // Step 6: Create Tasks Database (if enabled)
+    let tasksDb: any = null;
+    if (notion.config.includeTasksDb) {
+      notion.log('📋 Creating Tasks database...');
+      tasksDb = await notion.createOrGetTasksDatabase(interviewsDb.id, contactsDb.id);
+      ids.databases.Tasks = tasksDb;
+    }
+
+    // Step 7: Add rollup properties that require the relation property IDs
     notion.log('🔄 Adding rollup properties...');
     
     // Add rollups to Companies
@@ -434,6 +443,41 @@ async function main() {
       }
     });
 
+    // Add rollups for Tasks (if enabled)
+    if (notion.config.includeTasksDb && tasksDb) {
+      // Add Task Count rollup to Interviews
+      const interviewsUpdatedResponse = await notion.notionClient.databases.retrieve({ database_id: interviewsDb.id });
+      const interviewTasksRelationId = (interviewsUpdatedResponse.properties['Tasks'] as any)?.id;
+      
+      if (interviewTasksRelationId) {
+        await notion.updateDatabase(interviewsDb.id, {
+          'Task Count': {
+            rollup: {
+              relation_property_id: interviewTasksRelationId,
+              rollup_property_id: 'title',
+              function: 'count'
+            }
+          }
+        });
+      }
+
+      // Add Task Count rollup to Contacts
+      const contactsUpdatedResponse2 = await notion.notionClient.databases.retrieve({ database_id: contactsDb.id });
+      const contactTasksRelationId = (contactsUpdatedResponse2.properties['Tasks'] as any)?.id;
+      
+      if (contactTasksRelationId) {
+        await notion.updateDatabase(contactsDb.id, {
+          'Task Count': {
+            rollup: {
+              relation_property_id: contactTasksRelationId,
+              rollup_property_id: 'title',
+              function: 'count'
+            }
+          }
+        });
+      }
+    }
+
     // Add rollups to Research Projects
     await notion.updateDatabase(interviewsDb.id, {
       'Key Insights': {
@@ -468,10 +512,12 @@ async function main() {
       }
     });
 
-    // Step 7: Create Dashboard Page
-    notion.log('📊 Creating Research Dashboard page...');
-    const dashboardPage = await notion.createDashboardPage('Research Dashboard');
-    ids.pages['Research Dashboard'] = dashboardPage;
+    // Step 8: Create Enhanced Dashboard Page (if enabled)
+    if (notion.config.includeDashboardPage) {
+      notion.log('📊 Creating enhanced Research Dashboard page...');
+      const dashboardPage = await notion.createEnhancedDashboardPage('Research Dashboard');
+      ids.pages['Research Dashboard'] = dashboardPage;
+    }
 
     // Save all IDs
     notion.saveNotionIds(ids);
